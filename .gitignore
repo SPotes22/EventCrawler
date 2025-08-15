@@ -2,4 +2,6 @@
 env/
 venv/
 *.pyc
-
+cookies/
+cookies
+*.csv
