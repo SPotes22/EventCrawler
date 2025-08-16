@@ -20,7 +20,6 @@ OUTPUT_FILE = "eventos.csv"
 KEYWORDS = ["concierto", "feria", "conmemoriacion", "tributo", "fumaton"]
 CITIES = ["pereira", "santarosa", "dosquebradas"]
 
-# watchdog (reinicio si se queda colgado sin output)
 WATCHDOG_TIMEOUT = 30  
 
 # ============================
@@ -76,13 +75,14 @@ def scroll_until_end():
 
         try:
             driver.find_element(By.XPATH, "//span[contains(text(),'End of results')]")
-            print("📍 Fin de resultados.")
+            print("📍 Fin de resultados detectado")
             break
         except:
             pass
 
         new_height = driver.execute_script("return document.body.scrollHeight")
         if new_height == last_height:
+            print("📍 No crece el scroll, detenemos")
             break
         last_height = new_height
 
@@ -93,7 +93,8 @@ def scroll_until_end():
 def scrape_layout_b():
     eventos = []
     blocks = driver.find_elements(By.XPATH, "//div[contains(@class,'x1qjc9v5')]")
-    for block in blocks:
+    print(f"🔎 Layout B detectado → {len(blocks)} bloques encontrados")
+    for idx, block in enumerate(blocks, start=1):
         try:
             dia = block.find_element(By.XPATH, ".//span/span").text
         except:
@@ -112,7 +113,7 @@ def scrape_layout_b():
             desc = ""
 
         if nombre:
-            print(f"📌 Copiado (B): {nombre}")
+            print(f"   ➡️ [{idx}] {nombre}")
             eventos.append([dia, nombre, desc, enlace])
     return eventos
 
@@ -120,7 +121,8 @@ def scrape_layout_b():
 def scrape_layout_c():
     eventos = []
     cards = driver.find_elements(By.XPATH, "//div[contains(@class,'x1xmf6yo')]")
-    for card in cards:
+    print(f"🔎 Layout C detectado → {len(cards)} tarjetas encontradas")
+    for idx, card in enumerate(cards, start=1):
         try:
             dia = card.find_element(By.XPATH, ".//span").text
         except:
@@ -139,7 +141,7 @@ def scrape_layout_c():
             desc = ""
 
         if nombre:
-            print(f"📌 Copiado (C): {nombre}")
+            print(f"   ➡️ [{idx}] {nombre}")
             eventos.append([dia, nombre, desc, enlace])
     return eventos
 
@@ -161,6 +163,7 @@ def detect_layout():
 # WATCHDOG (auto retry)
 # ============================
 last_activity_time = time.time()
+retry_count = 0
 
 def update_watchdog():
     global last_activity_time
@@ -169,13 +172,14 @@ def update_watchdog():
 def check_watchdog():
     return time.time() - last_activity_time > WATCHDOG_TIMEOUT
 
-
 def restart_driver():
-    global driver, wait
+    global driver, wait, retry_count
+    retry_count += 1
     try:
         driver.quit()
     except:
         pass
+    print(f"🔄 Reiniciando driver... (intentos: {retry_count})")
     driver = create_driver()
     wait = WebDriverWait(driver, 15)
     login_facebook()
@@ -185,6 +189,7 @@ def restart_driver():
 # MAIN
 # ============================
 login_facebook()
+total_eventos = 0
 
 with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
@@ -192,8 +197,8 @@ with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
 
     for kw in KEYWORDS:
         for city in CITIES:
+            print(f"\n🚀 Buscando: {kw} en {city} | Reintentos: {retry_count} | Eventos acumulados: {total_eventos}")
             url = f"https://www.facebook.com/search/events?q={kw}%20{city}"
-            print(f"\n🔎 Buscando: {kw} en {city}")
             driver.get(url)
             time.sleep(5)
 
@@ -212,12 +217,13 @@ with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
             for ev in eventos:
                 update_watchdog()
                 writer.writerow(ev)
+                total_eventos += 1
 
-            # chequeo watchdog
+            # watchdog
             if check_watchdog():
                 print("⏰ 30s sin actividad → reiniciando driver/login...")
                 restart_driver()
 
 driver.quit()
-print(f"\n✅ Scraping terminado. Guardado en {OUTPUT_FILE}")
+print(f"\n✅ Scraping terminado. Guardado en {OUTPUT_FILE} | Total eventos: {total_eventos} | Reintentos: {retry_count}")
 
