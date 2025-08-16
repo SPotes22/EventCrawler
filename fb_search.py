@@ -16,7 +16,7 @@ load_dotenv()
 FB_EMAIL = os.getenv("FB_EMAIL")
 FB_PASSWORD = os.getenv("FB_PASSWORD")
 
-OUTPUT_FILE = "eventos.csv"
+OUTPUT_FILE = "eventos_fb.csv"
 KEYWORDS = ["concierto", "feria", "conmemoriacion", "tributo", "fumaton"]
 CITIES = ["pereira", "santarosa", "dosquebradas"]
 
