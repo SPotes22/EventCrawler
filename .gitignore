@@ -5,3 +5,5 @@ venv/
 cookies/
 cookies
 *.csv
+.pkl
+
