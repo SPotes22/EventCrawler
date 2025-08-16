@@ -1,12 +1,14 @@
-import os
 import time
 import csv
+import os
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import NoSuchElementException
-import pickle
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # ============================
 # CONFIGURACIÓN
@@ -14,123 +16,115 @@ import pickle
 load_dotenv()
 FB_EMAIL = os.getenv("FB_EMAIL")
 FB_PASSWORD = os.getenv("FB_PASSWORD")
-COOKIES_FILE = "fb_cookies.pkl"
-CSV_FILE = "eventos_fb.csv"
+FACEBOOK_EMAIL = FB_EMAIL
+FACEBOOK_PASS =  FB_PASSWORD
+CHROME_DRIVER_PATH = "/usr/bin/chromedriver"
+OUTPUT_FILE = "eventos.csv"
 
-# Inicializar driver
-driver = webdriver.Chrome()
+# Keywords
+KEYWORDS = ["concierto", "feria", "conmemoriacion", "tributo", "fumaton"]
+CITIES = ["pereira", "santarosa", "dosquebradas"]
 
-# ============================
-# FUNCIONES DE SESIÓN
-# ============================
-def save_cookies(driver):
-    with open(COOKIES_FILE, "wb") as f:
-        pickle.dump(driver.get_cookies(), f)
+# === SELENIUM OPTIONS ===
+chrome_options = Options()
+chrome_options.add_argument("--disable-notifications")
+chrome_options.add_argument("--start-maximized")
 
-def load_cookies(driver):
-    if not os.path.exists(COOKIES_FILE):
-        return False
-    with open(COOKIES_FILE, "rb") as f:
-        cookies = pickle.load(f)
-    driver.get("https://www.facebook.com")
-    for cookie in cookies:
-        driver.add_cookie(cookie)
-    return True
+driver = webdriver.Chrome(options=chrome_options)
+wait = WebDriverWait(driver, 15)
 
-def fb_login_interactivo():
-    driver.get("https://www.facebook.com/login")
-    time.sleep(5)
 
-    if FB_EMAIL and FB_PASSWORD:
-        try:
-            email_input = driver.find_element(By.ID, "email")
-            pass_input = driver.find_element(By.ID, "pass")
+def login_facebook():
+    driver.get("https://www.facebook.com/")
+    try:
+        email_input = wait.until(EC.presence_of_element_located((By.ID, "email")))
+        pass_input = driver.find_element(By.ID, "pass")
+        email_input.send_keys(FACEBOOK_EMAIL)
+        pass_input.send_keys(FACEBOOK_PASS)
+        pass_input.send_keys(Keys.RETURN)
+        print("✅ Login exitoso")
+        time.sleep(5)
+    except Exception as e:
+        print("⚠️ Ya estabas logueado o falló login:", e)
 
-            email_input.clear()
-            email_input.send_keys(FB_EMAIL)
-            pass_input.clear()
-            pass_input.send_keys(FB_PASSWORD)
-            pass_input.send_keys(Keys.RETURN)
-            time.sleep(5)
-        except Exception as e:
-            print(f"[-] No se pudo loguear automáticamente: {e}")
 
-    input("[*] Si hay captcha/MFA, complétalo y presiona ENTER aquí...")
-    save_cookies(driver)
-    print("[+] Cookies guardadas para la próxima sesión")
-
-def ensure_logged_in():
-    if load_cookies(driver):
-        driver.refresh()
+def scroll_until_end():
+    """Hace scroll hasta que aparece 'End of results'."""
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    while True:
+        driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END)
         time.sleep(3)
+
         try:
-            driver.find_element(By.XPATH, "//a[contains(@href,'/me/')]")
-            print("[+] Sesión restaurada desde cookies")
-            return
-        except NoSuchElementException:
-            print("[-] Cookies inválidas o expiradas, iniciando login...")
-    fb_login_interactivo()
+            end_text = driver.find_element(By.XPATH, "//span[contains(text(),'End of results')]")
+            if end_text:
+                print("📍 Llegamos al final de resultados.")
+                break
+        except:
+            pass
 
-# ============================
-# FUNCIONES DE SCRAPEO
-# ============================
-def limpiar_titulo(t):
-    if not t:
-        return ""
-    t = t.strip()
-    if t.lower().startswith("profile photo of "):
-        t = t[len("profile photo of "):]
-    return t
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break
+        last_height = new_height
 
-def scrape_eventos():
+
+def scrape_events():
     eventos = []
-    # 🔹 Aquí pegas tu URL de búsqueda de eventos de Facebook
-    driver.get("https://www.facebook.com/events/search/?q=concierto%20pereira")
-    time.sleep(5)
+    event_blocks = driver.find_elements(By.XPATH, "//div[contains(@class,'x1qjc9v5')]")
 
-    cards = driver.find_elements(By.XPATH, "//a[contains(@href, '/events/')]")
-    for c in cards:
+    for block in event_blocks:
         try:
-            titulo = limpiar_titulo(c.text.split("\n")[0])
-            fecha = ""
-            lugar = ""
-            enlace = c.get_attribute("href")
+            dia = block.find_element(By.XPATH, ".//span/span").text
+        except:
+            dia = ""
 
-            partes = c.text.split("\n")
-            if len(partes) >= 2:
-                fecha = partes[1]
-            if len(partes) >= 3:
-                lugar = partes[2]
+        try:
+            nombre = block.find_element(By.XPATH, ".//a").text
+            enlace = block.find_element(By.XPATH, ".//a").get_attribute("href")
+        except:
+            nombre = ""
+            enlace = ""
 
-            eventos.append({
-                "Título": titulo,
-                "Fecha": fecha,
-                "Lugar": lugar,
-                "Enlace": enlace
-            })
-        except Exception as e:
-            print(f"[-] Error procesando card: {e}")
+        try:
+            desc = block.find_element(By.XPATH, ".//span[contains(@class,'x4zkp8e')]").text
+        except:
+            desc = ""
 
+        if nombre:
+            print(f"📌 Copiado evento: {nombre}")
+            eventos.append([dia, nombre, desc, enlace])
     return eventos
 
-# ============================
-# GUARDAR CSV
-# ============================
-def guardar_csv(eventos):
-    with open(CSV_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["Título", "Fecha", "Lugar", "Enlace"])
-        writer.writeheader()
-        for e in eventos:
-            e["Título"] = limpiar_titulo(e["Título"])
-            writer.writerow(e)
-    print(f"[+] {len(eventos)} eventos guardados en {CSV_FILE}")
 
-# ============================
-# MAIN
-# ============================
-if __name__ == "__main__":
-    ensure_logged_in()
-    eventos = scrape_eventos()
-    guardar_csv(eventos)
-    driver.quit()
+# === MAIN ===
+login_facebook()
+
+with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow(["DIA", "NOMBRE_EVENTO", "DESCRIPCION", "ENLACE"])
+
+    for kw in KEYWORDS:
+        for city in CITIES:
+            url = f"https://www.facebook.com/search/events?q={kw}%20{city}"
+            print(f"\n🔎 Buscando: {kw} en {city}")
+            driver.get(url)
+
+            # Esperar filtro "Events"
+            try:
+                filtro = wait.until(EC.presence_of_element_located((By.XPATH, "//span[text()='Events']")))
+                filtro.click()
+                time.sleep(3)
+            except:
+                print("⚠️ No encontré filtro 'Events'")
+
+            # Scroll hasta fin
+            scroll_until_end()
+
+            # Scrape
+            eventos = scrape_events()
+            writer.writerows(eventos)
+
+driver.quit()
+print(f"\n✅ Scraping terminado. Guardado en {OUTPUT_FILE}")
 
