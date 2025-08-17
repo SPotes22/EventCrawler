@@ -6,4 +6,4 @@ cookies/
 cookies
 *.csv
 .pkl
-
+*.txt
