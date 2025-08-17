@@ -10,3 +10,5 @@ cookies
 layoutA.txt
 layoutB.txt
 layoutC.txt
+layouts/
+.layouts
